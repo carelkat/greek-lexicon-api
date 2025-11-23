@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException
-from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
@@ -21,7 +20,7 @@ class VerseRequest(BaseModel):
     reference: str
 
 
-KIMI_API_KEY = os.getenv("KIMI_API_KEY")
+KIMI_API_KEY = os.getenv("KIMI_API_KEY") or ""
 
 
 LEXICON_PROMPT = """You are a lexical analyst for Koine Greek. For each Greek word in the verse (in order), provide:
@@ -57,53 +56,43 @@ def parse_reference(ref: str) -> dict:
 
 
 def fetch_greek_text(reference: str) -> str:
-    """
-    Fetch Greek text using a simple fallback approach
-    """
-    try:
-        ref_parts = parse_reference(reference)
-        
-        # For demo: Use hardcoded verses for common references
-        # In production, you'd integrate with a paid Bible API
-        verse_database = {
-            "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
-            "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
-            "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
-            "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
-            "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
-        }
-        
-        normalized_ref = reference.strip()
-        
-        if normalized_ref in verse_database:
-            return verse_database[normalized_ref]
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Verse '{reference}' not available. Try: John 1:1, John 3:16, Romans 8:28, Matthew 5:3, or Philippians 2:5"
-            )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching verse: {str(e)}"
-        )
+    # Simple fallback / demo data to allow local testing and avoid external API failures
+    verse_database = {
+        "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
+        "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
+        "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
+        "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
+        "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
+    }
+
+    normalized = reference.strip()
+    if normalized in verse_database:
+        return verse_database[normalized]
+    else:
+        raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available in demo database")
+
 
 @app.post("/api/analyze")
 async def analyze_verse(request: VerseRequest):
     try:
         greek_text = fetch_greek_text(request.reference)
 
+        # Choose API endpoint and model based on key format
+        if KIMI_API_KEY.startswith("sk-or-"):
+            api_url = "https://openrouter.ai/api/v1/chat/completions"
+            model = "gpt-4o-mini"  # example; replace with a supported model for OpenRouter
+        else:
+            api_url = "https://api.moonshot.cn/v1/chat/completions"
+            model = "moonshot-v1-128k"
+
         response = requests.post(
-            "https://api.moonshot.cn/v1/chat/completions",
+            api_url,
             headers={
                 "Authorization": f"Bearer {KIMI_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "moonshot-v1-128k",
+                "model": model,
                 "messages": [
                     {"role": "system", "content": LEXICON_PROMPT},
                     {"role": "user", "content": f"<verse>{greek_text}</verse>"}
@@ -119,9 +108,11 @@ async def analyze_verse(request: VerseRequest):
 
         content = content.strip()
         if content.startswith('```'):
-            content = content.split('```', 2)[1]
-            if content.startswith('json'):
-                content = content[4:]
+            parts = content.split('```', 2)
+            if len(parts) >= 2:
+                content = parts[1]
+                if content.startswith('json'):
+                    content = content[4:]
         content = content.strip()
 
         lexicon_data = json.loads(content)
@@ -159,4 +150,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-from fastapi.middleware.cors import CORSMiddleware
