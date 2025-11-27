@@ -56,21 +56,114 @@ def parse_reference(ref: str) -> dict:
 
 
 def fetch_greek_text(reference: str) -> str:
-    # Simple fallback / demo data to allow local testing and avoid external API failures
-    verse_database = {
-        "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
-        "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
-        "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
-        "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
-        "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
+    """
+    Fetch Greek text from multiple sources with fallbacks
+    """
+    try:
+        ref_parts = parse_reference(reference)
+        
+        # Method 1: Try API.Bible (if you have a key)
+        api_bible_key = os.getenv("API_BIBLE_KEY")
+        if api_bible_key:
+            try:
+                return fetch_from_api_bible(reference, api_bible_key)
+            except Exception as e:
+                print(f"API.Bible failed: {e}")
+        
+        # Method 2: Try BibleAPI.com (free, no auth)
+        try:
+            return fetch_from_bibleapi(reference)
+        except Exception as e:
+            print(f"BibleAPI failed: {e}")
+        
+        # Method 3: Fallback to demo verses
+        verse_database = {
+            "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
+            "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
+            "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
+            "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
+            "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
+        }
+        
+        if reference in verse_database:
+            return verse_database[reference]
+        
+        raise HTTPException(
+            status_code=404,
+            detail=f"Verse not found. Configure API_BIBLE_KEY for full access, or try: {', '.join(verse_database.keys())}"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching verse: {str(e)}"
+        )
+
+
+def fetch_from_api_bible(reference: str, api_key: str) -> str:
+    """
+    Fetch from API.Bible (SBLGNT)
+    Get free key at: https://scripture.api.bible
+    """
+    # SBLGNT Bible ID on API.Bible
+    bible_id = "de4e12af7f28f599-02"  # Greek SBLGNT
+    
+    # Convert reference format (e.g., "John 1:1" -> "JHN.1.1")
+    book_map = {
+        "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
+        "Acts": "ACT", "Romans": "ROM", "1 Corinthians": "1CO", "2 Corinthians": "2CO",
+        "Galatians": "GAL", "Ephesians": "EPH", "Philippians": "PHP", "Colossians": "COL",
+        "1 Thessalonians": "1TH", "2 Thessalonians": "2TH", "1 Timothy": "1TI", "2 Timothy": "2TI",
+        "Titus": "TIT", "Philemon": "PHM", "Hebrews": "HEB", "James": "JAS",
+        "1 Peter": "1PE", "2 Peter": "2PE", "1 John": "1JN", "2 John": "2JN", "3 John": "3JN",
+        "Jude": "JUD", "Revelation": "REV"
     }
+    
+    ref_parts = parse_reference(reference)
+    book_code = book_map.get(ref_parts["book"], ref_parts["book"].upper()[:3])
+    verse_id = f"{book_code}.{ref_parts['chapter']}.{ref_parts['verse_start']}"
+    
+    url = f"https://api.scripture.api.bible/v1/bibles/{bible_id}/verses/{verse_id}"
+    headers = {"api-key": api_key}
+    params = {"content-type": "text"}
+    
+    response = requests.get(url, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    
+    data = response.json()
+    greek_text = data['data']['content'].strip()
+    
+    # Clean HTML tags if present
+    import re
+    greek_text = re.sub(r'<[^>]+>', '', greek_text)
+    
+    return greek_text
 
-    normalized = reference.strip()
-    if normalized in verse_database:
-        return verse_database[normalized]
-    else:
-        raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available in demo database")
 
+def fetch_from_bibleapi(reference: str) -> str:
+    """
+    Fetch from BibleAPI.com (free, no auth needed)
+    """
+    # This API might work for some verses
+    ref_parts = parse_reference(reference)
+    book = ref_parts["book"].lower()
+    chapter = ref_parts["chapter"]
+    verse = ref_parts["verse_start"]
+    
+    url = f"https://bible-api.com/{book}+{chapter}:{verse}?translation=kjv"
+    
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    
+    data = response.json()
+    
+    # Note: This returns English, not Greek
+    # This is just a fallback - you'd need to find a Greek-specific free API
+    # For now, this will just throw an error to move to next fallback
+    
+    raise ValueError("BibleAPI.com doesn't provide Greek text")
 
 @app.post("/api/analyze")
 async def analyze_verse(request: VerseRequest):
