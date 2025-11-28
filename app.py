@@ -57,76 +57,12 @@ def parse_reference(ref: str) -> dict:
 
 def fetch_greek_text(reference: str) -> str:
     """
-    Fetch Greek text from API.Bible
+    Fetch Greek text with multiple fallback strategies.
+    1. Local demo database (fastest, no dependencies)
+    2. Public getbible.net SBLGNT (no API key required)
+    3. rest.api.bible if BIBLE_API_KEY and BIBLE_ID env vars are set
     """
-    api_bible_key = os.getenv("API_BIBLE_KEY")
-    
-    if not api_bible_key:
-        return fallback_verses(reference)
-    
-    try:
-        # Greek Bible IDs on API.Bible (try multiple)
-        greek_bible_ids = [
-            "de4e12af7f28f599-02",  # SBLGNT
-            "06125adad2d5898a-01",  # Another Greek version
-        ]
-        
-        ref_parts = parse_reference(reference)
-        
-        # Book name mapping for API.Bible
-        book_map = {
-            "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
-            "Acts": "ACT", "Romans": "ROM", 
-            "1 Corinthians": "1CO", "2 Corinthians": "2CO",
-            "Galatians": "GAL", "Ephesians": "EPH", 
-            "Philippians": "PHP", "Colossians": "COL",
-            "1 Thessalonians": "1TH", "2 Thessalonians": "2TH",
-            "1 Timothy": "1TI", "2 Timothy": "2TI",
-            "Titus": "TIT", "Philemon": "PHM", "Hebrews": "HEB",
-            "James": "JAS", "1 Peter": "1PE", "2 Peter": "2PE",
-            "1 John": "1JN", "2 John": "2JN", "3 John": "3JN",
-            "Jude": "JUD", "Revelation": "REV"
-        }
-        
-        book_code = book_map.get(ref_parts["book"], ref_parts["book"].upper()[:3])
-        verse_id = f"{book_code}.{ref_parts['chapter']}.{ref_parts['verse_start']}"
-        
-        # Try each Greek Bible ID
-        for bible_id in greek_bible_ids:
-            try:
-                url = f"https://api.scripture.api.bible/v1/bibles/{bible_id}/verses/{verse_id}"
-                response = requests.get(
-                    url,
-                    headers={"api-key": api_bible_key},
-                    params={"content-type": "text", "include-notes": "false", "include-titles": "false"},
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    greek_text = data['data']['content']
-                    
-                    # Clean HTML tags
-                    import re
-                    greek_text = re.sub(r'<[^>]+>', '', greek_text).strip()
-                    
-                    if greek_text:
-                        return greek_text
-                        
-            except Exception as e:
-                print(f"Failed with Bible ID {bible_id}: {e}")
-                continue
-        
-        # If all API attempts fail, use fallback
-        return fallback_verses(reference)
-        
-    except Exception as e:
-        print(f"API.Bible error: {e}")
-        return fallback_verses(reference)
-
-
-def fallback_verses(reference: str) -> str:
-    """Fallback to demo verses"""
+    # 1) Local/demo lookup (fast, no key required)
     verse_database = {
         "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
         "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
@@ -134,78 +70,65 @@ def fallback_verses(reference: str) -> str:
         "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
         "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
     }
-    
-    if reference in verse_database:
-        return verse_database[reference]
-    
-    raise HTTPException(
-        status_code=404,
-        detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}"
-    )
 
+    normalized = reference.strip()
+    if normalized in verse_database:
+        return verse_database[normalized]
 
-def fetch_from_api_bible(reference: str, api_key: str) -> str:
-    """
-    Fetch from API.Bible (SBLGNT)
-    Get free key at: https://scripture.api.bible
-    """
-    # SBLGNT Bible ID on API.Bible
-    bible_id = "de4e12af7f28f599-02"  # Greek SBLGNT
-    
-    # Convert reference format (e.g., "John 1:1" -> "JHN.1.1")
-    book_map = {
-        "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
-        "Acts": "ACT", "Romans": "ROM", "1 Corinthians": "1CO", "2 Corinthians": "2CO",
-        "Galatians": "GAL", "Ephesians": "EPH", "Philippians": "PHP", "Colossians": "COL",
-        "1 Thessalonians": "1TH", "2 Thessalonians": "2TH", "1 Timothy": "1TI", "2 Timothy": "2TI",
-        "Titus": "TIT", "Philemon": "PHM", "Hebrews": "HEB", "James": "JAS",
-        "1 Peter": "1PE", "2 Peter": "2PE", "1 John": "1JN", "2 John": "2JN", "3 John": "3JN",
-        "Jude": "JUD", "Revelation": "REV"
-    }
-    
-    ref_parts = parse_reference(reference)
-    book_code = book_map.get(ref_parts["book"], ref_parts["book"].upper()[:3])
-    verse_id = f"{book_code}.{ref_parts['chapter']}.{ref_parts['verse_start']}"
-    
-    url = f"https://api.scripture.api.bible/v1/bibles/{bible_id}/verses/{verse_id}"
-    headers = {"api-key": api_key}
-    params = {"content-type": "text"}
-    
-    response = requests.get(url, headers=headers, params=params, timeout=10)
-    response.raise_for_status()
-    
-    data = response.json()
-    greek_text = data['data']['content'].strip()
-    
-    # Clean HTML tags if present
-    import re
-    greek_text = re.sub(r'<[^>]+>', '', greek_text)
-    
-    return greek_text
+    # 2) Try to parse the reference for structured fetch
+    try:
+        parts = parse_reference(reference)
+        formatted_ref = f"{parts['book']}+{parts['chapter']}:{parts['verse_start']}"
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}")
 
+    # 3) Try public SBLGNT endpoint (getbible.net) — no API key needed
+    try:
+        url = f"https://getbible.net/v2/sblgnt/{formatted_ref}.json"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
 
-def fetch_from_bibleapi(reference: str) -> str:
-    """
-    Fetch from BibleAPI.com (free, no auth needed)
-    """
-    # This API might work for some verses
-    ref_parts = parse_reference(reference)
-    book = ref_parts["book"].lower()
-    chapter = ref_parts["chapter"]
-    verse = ref_parts["verse_start"]
-    
-    url = f"https://bible-api.com/{book}+{chapter}:{verse}?translation=kjv"
-    
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    
-    data = response.json()
-    
-    # Note: This returns English, not Greek
-    # This is just a fallback - you'd need to find a Greek-specific free API
-    # For now, this will just throw an error to move to next fallback
-    
-    raise ValueError("BibleAPI.com doesn't provide Greek text")
+        verses = []
+        for chapter_num, chapter_data in data.get('verses', {}).items():
+            for verse_num, verse_data in chapter_data.items():
+                verses.append(verse_data.get('text', ''))
+
+        if verses:
+            return ' '.join(verses)
+    except Exception:
+        pass
+
+    # 4) Optional: try rest.api.bible if BIBLE_API_KEY and BIBLE_ID are set
+    BIBLE_API_KEY = os.getenv("BIBLE_API_KEY") or os.getenv("BIBLE_KEY")
+    BIBLE_ID = os.getenv("BIBLE_ID")
+    if BIBLE_API_KEY and BIBLE_ID:
+        try:
+            headers = {"accept": "application/json", "api-key": BIBLE_API_KEY}
+            passage_path = f"{parts['book']}%20{parts['chapter']}:{parts['verse_start']}"
+            url = f"https://rest.api.bible/v1/bibles/{BIBLE_ID}/passages/{passage_path}"
+            r = requests.get(url, headers=headers, timeout=10)
+            r.raise_for_status()
+            j = r.json()
+            if isinstance(j, dict):
+                text_parts = []
+                def extract_text(obj):
+                    if isinstance(obj, str):
+                        text_parts.append(obj)
+                    elif isinstance(obj, dict):
+                        for v in obj.values():
+                            extract_text(v)
+                    elif isinstance(obj, list):
+                        for i in obj:
+                            extract_text(i)
+                extract_text(j)
+                if text_parts:
+                    return ' '.join(text_parts)
+        except Exception:
+            pass
+
+    # 5) Nothing found
+    raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}")
 
 @app.post("/api/analyze")
 async def analyze_verse(request: VerseRequest):
