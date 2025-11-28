@@ -62,7 +62,7 @@ def fetch_greek_text(reference: str) -> str:
     2. Public getbible.net SBLGNT (no API key required)
     3. rest.api.bible if BIBLE_API_KEY and BIBLE_ID env vars are set
     """
-    # 1) Local/demo lookup (fast, no key required)
+    # 1) Local/demo lookup
     verse_database = {
         "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
         "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
@@ -75,14 +75,14 @@ def fetch_greek_text(reference: str) -> str:
     if normalized in verse_database:
         return verse_database[normalized]
 
-    # 2) Try to parse the reference for structured fetch
+    # 2) Parse reference
     try:
         parts = parse_reference(reference)
         formatted_ref = f"{parts['book']}+{parts['chapter']}:{parts['verse_start']}"
     except ValueError:
         raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}")
 
-    # 3) Try public SBLGNT endpoint (getbible.net) — no API key needed
+    # 3) Try getbible.net (SBLGNT, no key needed)
     try:
         url = f"https://getbible.net/v2/sblgnt/{formatted_ref}.json"
         resp = requests.get(url, timeout=10)
@@ -97,10 +97,9 @@ def fetch_greek_text(reference: str) -> str:
         if verses:
             return ' '.join(verses)
     except Exception as e:
-        print(f"getbible.net failed for {formatted_ref}: {e}")
-        pass
+        print(f"DEBUG: getbible.net failed for {formatted_ref}: {e}")
 
-    # 4) Optional: try rest.api.bible if BIBLE_API_KEY and BIBLE_ID are set
+    # 4) Optional rest.api.bible fallback
     BIBLE_API_KEY = os.getenv("BIBLE_API_KEY") or os.getenv("BIBLE_KEY")
     BIBLE_ID = os.getenv("BIBLE_ID")
     if BIBLE_API_KEY and BIBLE_ID:
@@ -120,16 +119,17 @@ def fetch_greek_text(reference: str) -> str:
                         for v in obj.values():
                             extract_text(v)
                     elif isinstance(obj, list):
-                        for i in obj:
-                            extract_text(i)
+                        for item in obj:
+                            extract_text(item)
                 extract_text(j)
                 if text_parts:
                     return ' '.join(text_parts)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"DEBUG: rest.api.bible failed: {e}")
 
     # 5) Nothing found
     raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}")
+
 
 @app.post("/api/analyze")
 async def analyze_verse(request: VerseRequest):
@@ -139,7 +139,7 @@ async def analyze_verse(request: VerseRequest):
         # Choose API endpoint and model based on key format
         if KIMI_API_KEY.startswith("sk-or-"):
             api_url = "https://openrouter.ai/api/v1/chat/completions"
-            model = "gpt-4o-mini"  # example; replace with a supported model for OpenRouter
+            model = "gpt-4o-mini"
         else:
             api_url = "https://api.moonshot.cn/v1/chat/completions"
             model = "moonshot-v1-128k"
