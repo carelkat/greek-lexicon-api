@@ -156,6 +156,21 @@ def fetch_greek_text(reference: str) -> str:
     raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}")
 
 
+# Pre-canned demo analyses for offline/demo mode (returned when no AI key available)
+DEMO_ANALYSIS = {
+    "John 1:1": [
+        {"word": "Ἐν", "strong": "G1722", "lemma": "ἐν", "translation": "in", "alternatives": ["in","within","among","at","by","during","through","with","in the midst of","in the presence of","in the area of","in the context of","in the company of","in the course of","in the state of"]},
+        {"word": "ἀρχῇ", "strong": "G746", "lemma": "ἀρχή", "translation": "beginning", "alternatives": ["origin","principle","rule","authority","first cause","start","foundation","commencement","source","originating time","beginning of time","primary state","first period","first cause","first principle"]},
+        {"word": "ἦν", "strong": "G2258", "lemma": "εἰμί", "translation": "was", "alternatives": ["was","existed","stood","remained","became","came to be","appeared","lived","continued","held true","obtained","was present","occurred","took place","remained as"]},
+        {"word": "ὁ", "strong": "G3588", "lemma": "ὁ", "translation": "the", "alternatives": ["the","this","that","he","she","it","those","these","that one","this one","the particular","the definite article","the aforesaid","the said","the same"]},
+        {"word": "λόγος", "strong": "G3056", "lemma": "λόγος", "translation": "word", "alternatives": ["word","speech","message","discourse","statement","reason","account","declaration","narrative","matter","motive","communication","expression","utterance","report","saying"]},
+        {"word": "καὶ", "strong": "G2532", "lemma": "καί", "translation": "and", "alternatives": ["and","also","even","also indeed","too","moreover","besides","still","likewise","in addition","further","as well","plus","together with","along with"]},
+        {"word": "ὁ", "strong": "G3588", "lemma": "ὁ", "translation": "the", "alternatives": ["the","this","that","he","she","it","those","these","that one","this one","the particular","the definite article","the aforesaid","the said","the same"]},
+        {"word": "λόγος", "strong": "G3056", "lemma": "λόγος", "translation": "word", "alternatives": ["word","speech","message","discourse","statement","reason","account","declaration","narrative","matter","motive","communication","expression","utterance","report","saying"]},
+    ]
+}
+
+
 @app.post("/api/analyze")
 async def analyze_verse(request: VerseRequest):
     try:
@@ -225,6 +240,9 @@ async def analyze_raw(request: VerseRequest):
     media type application/json. It enforces the strict LEXICON_PROMPT.
     """
     if not KIMI_API_KEY:
+        # If demo analysis exists for the requested reference, return it without needing an AI key
+        if request.reference in DEMO_ANALYSIS:
+            return Response(content=json.dumps(DEMO_ANALYSIS[request.reference], ensure_ascii=False), media_type="application/json")
         raise HTTPException(status_code=400, detail="KIMI_API_KEY not set; cannot perform lexical analysis without an API key.")
 
     try:
