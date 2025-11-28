@@ -100,12 +100,14 @@ def fetch_greek_text(reference: str) -> str:
     if normalized in verse_database:
         return verse_database[normalized]
 
-    # 2) Parse reference
+    # 2) Parse reference (best-effort). If strict parsing fails, fall back to a tolerant formatter
     try:
         parts = parse_reference(reference)
         formatted_ref = f"{parts['book']}+{parts['chapter']}:{parts['verse_start']}"
     except ValueError:
-        raise HTTPException(status_code=404, detail=f"Verse '{reference}' not available. Demo verses: {', '.join(verse_database.keys())}")
+        # Do not fail immediately — try a tolerant formatting for external services
+        # Replace spaces with + to form e.g. 'John+14:1' which getbible.net accepts
+        formatted_ref = reference.strip().replace(' ', '+')
 
     # 3) Try getbible.net (SBLGNT, no key needed)
     try:
