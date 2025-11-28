@@ -96,7 +96,8 @@ def fetch_greek_text(reference: str) -> str:
 
         if verses:
             return ' '.join(verses)
-    except Exception:
+    except Exception as e:
+        print(f"getbible.net failed for {formatted_ref}: {e}")
         pass
 
     # 4) Optional: try rest.api.bible if BIBLE_API_KEY and BIBLE_ID are set
