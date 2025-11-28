@@ -101,6 +101,7 @@ def fetch_greek_text(reference: str) -> str:
         return verse_database[normalized]
 
     # 2) Parse reference (best-effort). If strict parsing fails, fall back to a tolerant formatter
+    parts = None
     try:
         parts = parse_reference(reference)
         formatted_ref = f"{parts['book']}+{parts['chapter']}:{parts['verse_start']}"
@@ -108,12 +109,11 @@ def fetch_greek_text(reference: str) -> str:
         # Do not fail immediately — try a tolerant formatting for external services
         # Replace spaces with + to form e.g. 'John+14:1' which getbible.net accepts
         formatted_ref = reference.strip().replace(' ', '+')
-        parts = None
 
     # 3) Try getbible.net (SBLGNT, no key needed)
     try:
         url = f"https://getbible.net/v2/sblgnt/{formatted_ref}.json"
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Greek-Lexicon-API/1.0"})
         resp.raise_for_status()
         data = resp.json()
 
