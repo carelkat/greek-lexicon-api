@@ -108,6 +108,7 @@ def fetch_greek_text(reference: str) -> str:
         # Do not fail immediately — try a tolerant formatting for external services
         # Replace spaces with + to form e.g. 'John+14:1' which getbible.net accepts
         formatted_ref = reference.strip().replace(' ', '+')
+        parts = None
 
     # 3) Try getbible.net (SBLGNT, no key needed)
     try:
@@ -126,10 +127,10 @@ def fetch_greek_text(reference: str) -> str:
     except Exception as e:
         print(f"DEBUG: getbible.net failed for {formatted_ref}: {e}")
 
-    # 4) Optional rest.api.bible fallback
+    # 4) Optional rest.api.bible fallback (only if we have parsed parts)
     BIBLE_API_KEY = os.getenv("BIBLE_API_KEY") or os.getenv("BIBLE_KEY")
     BIBLE_ID = os.getenv("BIBLE_ID")
-    if BIBLE_API_KEY and BIBLE_ID:
+    if BIBLE_API_KEY and BIBLE_ID and parts:
         try:
             headers = {"accept": "application/json", "api-key": BIBLE_API_KEY}
             passage_path = f"{parts['book']}%20{parts['chapter']}:{parts['verse_start']}"
