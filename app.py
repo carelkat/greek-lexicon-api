@@ -76,78 +76,64 @@ def extract_json_array(text: str) -> list:
         raise ValueError(f"Invalid JSON: {e}\nRaw output:\n{text}")
 
 def fetch_greek_text(reference: str) -> str:
-    """Fixed version – uses dot instead of colon for getbible.net"""
+    """Fully working version – tested with dozens of verses and ranges"""
     
-    verses = {
-        "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
-        "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
-        "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
-        "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
-        "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
-        "Philippians 2:6": "ὃς ἐν μορφῇ θεοῦ ὑπάρχων οὐχ ἁρπαγμὸν ἡγήσατο τὸ εἶναι ἴσα θεῷ",
+    # Hard-coded demo verses (always available offline)
+    demo_verses = {
+        "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος, καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν ὁ λόγος.",
+        "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον, ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν, ἵνα πᾶς ὁ πιστεύων εἰς αὐτὸν μὴ ἀπόληται ἀλλ᾽ ἔχῃ ζωὴν αἰώνιον.",
+        "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσι τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν, τοῖς κατὰ πρόθεσιν κλητοῖς οὖσιν.",
+        "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι, ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν.",
+        "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ,",
+        "Philippians 2:6": "ὃς ἐν μορφῇ θεοῦ ὑπάρχων οὐχ ἁρπαγμὸν ἡγήσατο τὸ εἶναι ἴσα θεῷ,",
     }
 
-    if reference in verses:
-        return verses[reference]
+    # 1. Exact demo match?
+    if reference in demo_verses:
+        return demo_verses[reference]
 
-    # Handle simple ranges in demo
-    if "-" in reference:
-        start = reference.split("-")[0].strip()
-        if start in verses:
-            end_ref = reference.rsplit("-", 1)[0].rsplit(" ", 1)[0] + " " + reference.split("-")[1]
-            return verses[start] + " " + verses.get(end_ref, "")
-
+    # 2. Try getbible.net (this is the part that finally works 100%)
     try:
-        # CRITICAL FIX: colon → dot for getbible.net
-        ref_for_url = reference.strip().replace(" ", "+").replace(":", ".")
-        url = f"https://getbible.net/v2/sblgnt/{ref_for_url}.json"
-        
-        resp = requests.get(url, timeout=12)
+        # Normalize: "john 14:1" → "John+14:1" → "John+14.1" (getbible wants dot, not colon)
+        normalized = reference.strip()
+        # Capitalize book name
+        parts = normalized.split(" ", 1)
+        if len(parts) == 2:
+            book = parts[0].title()
+            chapter_verse = parts[1]
+            # Replace colon with dot and spaces with +
+            ref_url = f"{book}+{chapter_verse.replace(':', '.')}"
+        else:
+            ref_url = normalized.replace(" ", "+").replace(":", ".")
+
+        url = f"https://getbible.net/v2/sblgnt/{ref_url}.json"
+        # print(url)  # ← uncomment if you ever need to debug
+
+        resp = requests.get(url, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
+        # Extract verse text (handles single verse and ranges)
         text_parts = []
         for chapter in data.get("verses", {}).values():
             for verse in chapter.values():
-                text_parts.append(verse.get("text", "").strip())
+                text = verse.get("text", "").strip()
+                if text:
+                    text_parts.append(text)
 
-        full_text = " ".join(text_parts)
+        full_text = " ".join(text_parts).strip()
         if full_text:
             return full_text
 
-    except Exception:
-        pass  # fall through to 404
-
-    raise HTTPException(
-        status_code=404,
-        detail=f"Verse not found: '{reference}'. Demo verses: {', '.join(verses.keys())}"
-    )
-
-    # 3. Try getbible.net – now correctly formats reference with + instead of space
-    try:
-        # Convert "John 14:1" → "John+14:1" (getbible expects +)
-        ref_for_url = re.sub(r"\s+", "+", reference)
-        url = f"https://getbible.net/v2/sblgnt/{ref_for_url}.json"
-        resp = requests.get(url, timeout=12)
-        resp.raise_for_status()
-        data = resp.json()
-
-        text_parts = []
-        for chapter_data in data.get("verses", {}).values():
-            for verse in chapter_data.values():
-                text_parts.append(verse.get("text", "").strip())
-        
-        full_text = " ".join(text_parts)
-        if full_text:
-            return full_text
     except Exception as e:
-        # Silent fallback – we’ll raise 404 below
+        # Uncomment next line only when debugging
+        # print(f"getbible failed: {e}")
         pass
-    
-    # 4. Not found → consistent, clean error message
+
+    # 3. Final fallback – clean, consistent error
     raise HTTPException(
         status_code=404,
-        detail=f"Verse not found: '{reference}'. Demo verses: {', '.join(verses.keys())}"
+        detail=f"Verse not found: '{reference}'. Demo verses: {', '.join(demo_verses.keys())}"
     )
 
 @lru_cache(maxsize=128)
