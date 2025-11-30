@@ -33,10 +33,10 @@ Requirements:
 
 
 def fetch_greek_text(reference: str) -> str:
-    """Simple verse lookup with fallback"""
+    """Fetch Greek text from multiple sources with proper fallbacks"""
     
-    # Demo verses (always available)
-    verses = {
+    # Demo verses (instant response)
+    demo_verses = {
         "John 1:1": "Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν καὶ θεὸς ἦν ὁ λόγος",
         "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
         "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
@@ -44,92 +44,99 @@ def fetch_greek_text(reference: str) -> str:
         "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
     }
     
-    # Check demo verses first
-    if reference in verses:
-        return verses[reference]
+    # Check demo first
+    if reference.strip() in demo_verses:
+        return demo_verses[reference.strip()]
     
-    # Try GetBible.net (free, no auth)
+    # Method 1: Try Crosswire/SWORD API (works without auth)
     try:
-        ref = reference.replace(' ', '+')
-        url = f"https://getbible.net/v2/sblgnt/{ref}.json"
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        # Format: Book Chapter:Verse (e.g., "John 14:1")
+        ref_encoded = reference.replace(' ', '%20')
+        url = f"https://getbible.net/json?passage={ref_encoded}&version=greek"
         
-        text_parts = []
-        for chapter in data.get('verses', {}).values():
-            for verse in chapter.values():
-                text_parts.append(verse.get('text', ''))
-        
-        if text_parts:
-            return ' '.join(text_parts)
-    except:
-        pass
-    
-    # Not found
-    raise HTTPException(
-        status_code=404,
-        detail=f"Verse not found. Try: {', '.join(verses.keys())}"
-    )
-
-
-@app.post("/api/analyze")
-async def analyze_verse(request: VerseRequest):
-    try:
-        # Get Greek text
-        greek_text = fetch_greek_text(request.reference)
-        
-        # Choose API based on key
-        if KIMI_API_KEY.startswith("sk-or-"):
-            api_url = "https://openrouter.ai/api/v1/chat/completions"
-            model = "gpt-4o-mini"
-        else:
-            api_url = "https://api.moonshot.cn/v1/chat/completions"
-            model = "moonshot-v1-128k"
-        
-        # Call AI
-        response = requests.post(
-            api_url,
+        response = requests.get(
+            url, 
+            timeout=15,
             headers={
-                "Authorization": f"Bearer {KIMI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": LEXICON_PROMPT},
-                    {"role": "user", "content": f"<verse>{greek_text}</verse>"}
-                ],
-                "temperature": 0.3
-            },
-            timeout=60
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
         )
         
-        response.raise_for_status()
-        result = response.json()
-        content = result['choices'][0]['message']['content'].strip()
-        
-        # Clean markdown
-        if content.startswith('```'):
-            content = content.split('```')[1]
-            if content.startswith('json'):
-                content = content[4:]
-        content = content.strip()
-        
-        # Parse and return
-        lexicon_data = json.loads(content)
-        
-        return {
-            "text": greek_text,
-            "reference": request.reference,
-            "analysis": lexicon_data
-        }
-        
-    except HTTPException:
-        raise
+        if response.status_code == 200:
+            # GetBible returns JSONP, strip the callback
+            text = response.text
+            if text.startswith('(') and text.endswith(')'):
+                text = text[1:-1]
+            
+            data = json.loads(text)
+            
+            # Extract verse text
+            if isinstance(data, dict):
+                for book_data in data.values():
+                    if isinstance(book_data, dict) and 'chapter' in book_data:
+                        for chapter in book_data['chapter'].values():
+                            for verse in chapter.values():
+                                if 'verse' in verse:
+                                    return verse['verse']
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        print(f"GetBible failed: {e}")
+    
+    # Method 2: Try API.Bible if key is available
+    api_bible_key = os.getenv("API_BIBLE_KEY")
+    if api_bible_key:
+        try:
+            # SBLGNT Bible ID
+            bible_id = "de4e12af7f28f599-02"
+            
+            # Book code mapping
+            book_codes = {
+                "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
+                "Acts": "ACT", "Romans": "ROM", 
+                "1 Corinthians": "1CO", "2 Corinthians": "2CO",
+                "Galatians": "GAL", "Ephesians": "EPH", 
+                "Philippians": "PHP", "Colossians": "COL",
+                "1 Thessalonians": "1TH", "2 Thessalonians": "2TH",
+                "1 Timothy": "1TI", "2 Timothy": "2TI",
+                "Titus": "TIT", "Philemon": "PHM", "Hebrews": "HEB",
+                "James": "JAS", "1 Peter": "1PE", "2 Peter": "2PE",
+                "1 John": "1JN", "2 John": "2JN", "3 John": "3JN",
+                "Jude": "JUD", "Revelation": "REV"
+            }
+            
+            # Parse reference (e.g., "John 14:1" -> JHN.14.1)
+            match = re.match(r'(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)', reference)
+            if match:
+                book_name = match.group(1).strip()
+                chapter = match.group(2)
+                verse = match.group(3)
+                
+                book_code = book_codes.get(book_name, book_name[:3].upper())
+                verse_id = f"{book_code}.{chapter}.{verse}"
+                
+                url = f"https://api.scripture.api.bible/v1/bibles/{bible_id}/verses/{verse_id}"
+                
+                response = requests.get(
+                    url,
+                    headers={"api-key": api_bible_key},
+                    params={"content-type": "text"},
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    greek_text = data['data']['content']
+                    # Remove HTML tags
+                    greek_text = re.sub(r'<[^>]+>', '', greek_text).strip()
+                    if greek_text:
+                        return greek_text
+        except Exception as e:
+            print(f"API.Bible failed: {e}")
+    
+    # Method 3: Fallback message
+    raise HTTPException(
+        status_code=404,
+        detail=f"Could not fetch verse '{reference}'. Please check the format (e.g., 'John 14:1') or try one of the demo verses: {', '.join(demo_verses.keys())}"
+    )
 
 @app.get("/")
 async def root():
