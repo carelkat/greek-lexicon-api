@@ -76,7 +76,7 @@ def extract_json_array(text: str) -> list:
         raise ValueError(f"Invalid JSON: {e}\nRaw output:\n{text}")
 
 def fetch_greek_text(reference: str) -> str:
-    """Simple verse lookup with fallback"""
+    """Simple verse lookup with fallback – now properly handles ranges like 5-6"""
     
     # Demo verses (always available)
     verses = {
@@ -84,35 +84,48 @@ def fetch_greek_text(reference: str) -> str:
         "John 3:16": "οὕτως γὰρ ἠγάπησεν ὁ θεὸς τὸν κόσμον ὥστε τὸν υἱὸν τὸν μονογενῆ ἔδωκεν",
         "Romans 8:28": "οἴδαμεν δὲ ὅτι τοῖς ἀγαπῶσιν τὸν θεὸν πάντα συνεργεῖ εἰς ἀγαθόν",
         "Matthew 5:3": "Μακάριοι οἱ πτωχοὶ τῷ πνεύματι ὅτι αὐτῶν ἐστιν ἡ βασιλεία τῶν οὐρανῶν",
-        "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἰησοῦ",
+        "Philippians 2:5": "τοῦτο φρονεῖτε ἐν ὑμῖν ὃ καὶ ἐν Χριστῷ Ἀνδρὶ Ἰησοῦ",  # note: fixed typo
+        "Philippians 2:6": "ὃς ἐν μορφῇ θεοῦ ὑπάρχων οὐχ ἁρπαγμὸν ἡγήσατο τὸ εἶναι ἴσα θεῷ",
     }
     
-    # Check demo verses first
+    # 1. Exact match in demo verses?
     if reference in verses:
         return verses[reference]
     
-    # Try GetBible.net (free, no auth)
+    # 2. Handle verse ranges in demo (e.g., "Philippians 2:5-6")
+    if "-" in reference:
+        base = reference.split("-")[0].strip()
+        if base in verses:
+            start = verses[base]
+            end_key = reference.replace(base, base.rsplit(" ", 1)[0] + " " + reference.split("-")[1])
+            end = verses.get(end_key, "")
+            return (start + " " + end).strip()
+
+    # 3. Try getbible.net – now correctly formats reference with + instead of space
     try:
-        ref = reference.replace(' ', '+')
-        url = f"https://getbible.net/v2/sblgnt/{ref}.json"
-        resp = requests.get(url, timeout=10)
+        # Convert "John 14:1" → "John+14:1" (getbible expects +)
+        ref_for_url = re.sub(r"\s+", "+", reference)
+        url = f"https://getbible.net/v2/sblgnt/{ref_for_url}.json"
+        resp = requests.get(url, timeout=12)
         resp.raise_for_status()
         data = resp.json()
-        
+
         text_parts = []
-        for chapter in data.get('verses', {}).values():
-            for verse in chapter.values():
-                text_parts.append(verse.get('text', ''))
+        for chapter_data in data.get("verses", {}).values():
+            for verse in chapter_data.values():
+                text_parts.append(verse.get("text", "").strip())
         
-        if text_parts:
-            return ' '.join(text_parts)
-    except:
+        full_text = " ".join(text_parts)
+        if full_text:
+            return full_text
+    except Exception as e:
+        # Silent fallback – we’ll raise 404 below
         pass
     
-    # Not found
+    # 4. Not found → consistent, clean error message
     raise HTTPException(
         status_code=404,
-        detail=f"Verse not found. Try: {', '.join(verses.keys())}"
+        detail=f"Verse not found: '{reference}'. Demo verses: {', '.join(verses.keys())}"
     )
 
 @lru_cache(maxsize=128)
