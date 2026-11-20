@@ -6,6 +6,7 @@ import json
 import os
 import re
 from functools import lru_cache
+from urllib.parse import quote
 
 app = FastAPI()
 
@@ -88,35 +89,19 @@ def fetch_greek_text(reference: str) -> str:
         "Philippians 2:6": "ὃς ἐν μορφῇ θεοῦ ὑπάρχων οὐχ ἁρπαγμὸν ἡγήσατο τὸ εἶναι ἴσα θεῷ,",
     }
 
-    # 1. Exact demo match?
+       # 1. Exact demo match?
     if reference in demo_verses:
         return demo_verses[reference]
-
-    # 2. Try getbible.net (this is the part that finally works 100%)
     try:
-        # Normalize: "john 14:1" → "John+14:1" → "John+14.1" (getbible wants dot, not colon)
-        normalized = reference.strip()
-        # Capitalize book name
-        parts = normalized.split(" ", 1)
-        if len(parts) == 2:
-            book = parts[0].title()
-            chapter_verse = parts[1]
-            # Replace colon with dot and spaces with +
-            ref_url = f"{book}+{chapter_verse.replace(':', '.')}"
-        else:
-            ref_url = normalized.replace(" ", "+").replace(":", ".")
-
-        url = f"https://getbible.net/v2/sblgnt/{ref_url}.json"
-        # print(url)  # ← uncomment if you ever need to debug
+        url = f"https://query.getbible.net/v2/tischendorf/{quote(reference)}"
 
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
-        # Extract verse text (handles single verse and ranges)
         text_parts = []
-        for chapter in data.get("verses", {}).values():
-            for verse in chapter.values():
+        for chapter in data.values():
+            for verse in chapter.get("verses", []):
                 text = verse.get("text", "").strip()
                 if text:
                     text_parts.append(text)
@@ -126,11 +111,8 @@ def fetch_greek_text(reference: str) -> str:
             return full_text
 
     except Exception as e:
-        # Uncomment next line only when debugging
-        # print(f"getbible failed: {e}")
-        pass
-
-    # 3. Final fallback – clean, consistent error
+        print(f"getbible failed: {e}")
+            # 3. Final fallback – clean, consistent error
     raise HTTPException(
         status_code=404,
         detail=f"Verse not found: '{reference}'. Demo verses: {', '.join(demo_verses.keys())}"
