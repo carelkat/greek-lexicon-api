@@ -29,7 +29,7 @@ A FastAPI backend service and web interface for word-by-word lexical analysis of
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com
+   git clone https://github.com/carelkat/greek-lexicon-api.git
    cd greek-lexicon-api
    ```
 
